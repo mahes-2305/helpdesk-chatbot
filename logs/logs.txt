@@ -1,0 +1,4 @@
+User: semester
+Bot: Semester exams start from March 15.
+Confidence: 54.17%
+

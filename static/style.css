@@ -1,0 +1,91 @@
+body {
+    font-family: Arial;
+    background: linear-gradient(to right, #2b5876, #4e4376);
+    display: flex;
+    justify-content: center;
+    padding: 40px;
+}
+
+.container {
+    background: white;
+    width: 400px;
+    padding: 20px;
+    border-radius: 15px;
+}
+
+#chat-box {
+    height: 300px;
+    overflow-y: auto;
+    margin-bottom: 10px;
+}
+
+.user {
+    background: #007bff;
+    color: white;
+    padding: 8px;
+    margin: 5px;
+    border-radius: 10px;
+    text-align: right;
+}
+
+.bot {
+    background: #f1f1f1;
+    padding: 8px;
+    margin: 5px;
+    border-radius: 10px;
+}
+
+.confidence {
+    font-size: 12px;
+    color: gray;
+}
+
+.input-area {
+    display: flex;
+}
+
+input {
+    flex: 1;
+    padding: 5px;
+}
+
+button {
+    padding: 5px 10px;
+}
+
+.dark {
+    background: #121212;
+}
+
+.dark .container {
+    background: #1e1e1e;
+    color: white;
+}
+
+/* Dark mode base */
+body.dark {
+    background: linear-gradient(to right, #1e1e1e, #2c2c2c);
+    color: #ffffff;
+}
+
+/* Chat messages in dark mode */
+body.dark .bot {
+    background-color: #333;
+    color: #ffffff;
+}
+
+body.dark .user {
+    background-color: #1f6feb;
+    color: #ffffff;
+}
+
+/* Confidence text */
+body.dark .confidence {
+    color: #bbbbbb;
+}
+
+/* Admin dashboard cards */
+body.dark .card {
+    background-color: #2a2a2a;
+    color: #ffffff;
+}
