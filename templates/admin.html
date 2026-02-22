@@ -13,6 +13,13 @@
 
 <div class="container mt-4">
 
+    <!-- Statistics -->
+    <div class="card shadow p-3 mb-4">
+        <h5>📊 Statistics</h5>
+        <p><strong>Total Queries:</strong> {{ total_queries }}</p>
+        <p><strong>Low Confidence Queries (&lt;40%):</strong> {{ low_confidence_logs|length }}</p>
+    </div>
+
     <div class="row">
         <div class="col-md-6">
             <div class="card shadow p-3">
@@ -37,6 +44,23 @@
                 {% endfor %}
             </div>
         </div>
+    </div>
+
+    <!-- Low Confidence Section -->
+    <div class="card shadow p-3 mt-4">
+        <h5>⚠ Low Confidence Queries</h5>
+
+        {% if low_confidence_logs %}
+            {% for log in low_confidence_logs %}
+                <div class="border p-2 mb-2 rounded">
+                    <strong>User:</strong> {{ log[1] }} <br>
+                    <strong>Bot Response:</strong> {{ log[2] }} <br>
+                    <strong>Confidence:</strong> {{ log[3] }}%
+                </div>
+            {% endfor %}
+        {% else %}
+            <p>No low confidence queries.</p>
+        {% endif %}
     </div>
 
 </div>

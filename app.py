@@ -1,13 +1,13 @@
 from flask import Flask, request, redirect, url_for, session, jsonify, render_template_string
 import sqlite3
+import os
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
 
 app = Flask(__name__)
-app.secret_key = "supersecretkey"
+app.secret_key = os.environ.get("SECRET_KEY", "devkey")
 
-import os
-
+# Admin credentials from environment
 ADMIN_USERNAME = os.environ.get("ADMIN_USERNAME", "admin")
 ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "1234")
 
@@ -54,8 +54,7 @@ def train_model():
         vectorizer = TfidfVectorizer()
         X = vectorizer.fit_transform(questions)
         return vectorizer, X, questions
-    else:
-        return None, None, []
+    return None, None, []
 
 # ================= HOME =================
 
@@ -114,7 +113,7 @@ def chat():
     vectorizer, X, questions = train_model()
 
     if not questions:
-        return jsonify({"response":"No FAQs available.","confidence":0})
+        return jsonify({"response": "No FAQs available.", "confidence": 0})
 
     user_vector = vectorizer.transform([user_input])
     similarity = cosine_similarity(user_vector, X)
@@ -129,16 +128,21 @@ def chat():
         response = "I am not sure about that. Forwarded to admin."
     else:
         cursor.execute("SELECT answer FROM faqs WHERE question=?", (questions[index],))
-        response = cursor.fetchone()[0]
+        result = cursor.fetchone()
+        response = result[0] if result else "Answer not found."
 
-    confidence = round(score*100,2)
+    confidence = round(score * 100, 2)
 
-    cursor.execute("INSERT INTO logs (user_input, bot_response, confidence) VALUES (?,?,?)",
-                   (user_input,response,confidence))
+    # Log query
+    cursor.execute(
+        "INSERT INTO logs (user_input, bot_response, confidence) VALUES (?, ?, ?)",
+        (user_input, response, confidence)
+    )
+
     conn.commit()
     conn.close()
 
-    return jsonify({"response":response,"confidence":confidence})
+    return jsonify({"response": response, "confidence": confidence})
 
 # ================= LOGIN =================
 
@@ -176,8 +180,8 @@ def admin():
     cursor.execute("SELECT COUNT(*) FROM logs")
     total_queries = cursor.fetchone()[0]
 
-    cursor.execute("SELECT COUNT(*) FROM logs WHERE confidence < 40")
-    low_confidence = cursor.fetchone()[0]
+    cursor.execute("SELECT * FROM logs WHERE confidence < 40")
+    low_confidence_logs = cursor.fetchall()
 
     conn.close()
 
@@ -188,14 +192,8 @@ def admin():
 <title>Admin Dashboard</title>
 <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
 <style>
-body.dark {
-    background-color:#121212;
-    color:white;
-}
-.dark .card {
-    background:#1e1e1e;
-    color:white;
-}
+body.dark { background-color:#121212; color:white; }
+.dark .card { background:#1e1e1e; color:white; }
 </style>
 </head>
 
@@ -211,40 +209,50 @@ body.dark {
 
 <div class="container mt-4">
 
+    <div class="card shadow p-3 mb-4">
+        <h5>📊 Statistics</h5>
+        <p><strong>Total Queries:</strong> {{total_queries}}</p>
+        <p><strong>Low Confidence (&lt;40%):</strong> {{low_confidence_logs|length}}</p>
+    </div>
+
     <div class="row">
         <div class="col-md-6">
             <div class="card shadow p-3">
-                <h5>📊 Statistics</h5>
-                <p><strong>Total Queries:</strong> {{total_queries}}</p>
-                <p><strong>Low Confidence (&lt;40%):</strong> {{low_confidence}}</p>
+                <h5>Add FAQ</h5>
+                <form method="POST" action="/add">
+                    <input name="question" class="form-control mb-2" placeholder="Question" required>
+                    <textarea name="answer" class="form-control mb-2" placeholder="Answer" required></textarea>
+                    <button class="btn btn-primary">Add FAQ</button>
+                </form>
             </div>
         </div>
 
         <div class="col-md-6">
             <div class="card shadow p-3">
-                <h5>Add FAQ</h5>
-                <form method="POST" action="/add">
-                    <div class="mb-2">
-                        <input name="question" class="form-control" placeholder="Question">
+                <h5>Existing FAQs</h5>
+                {% for faq in faqs %}
+                    <div class="border rounded p-2 mb-2">
+                        <strong>{{faq[1]}}</strong>
+                        <p>{{faq[2]}}</p>
+                        <a href="/delete/{{faq[0]}}" class="btn btn-sm btn-danger">Delete</a>
                     </div>
-                    <div class="mb-2">
-                        <textarea name="answer" class="form-control" placeholder="Answer"></textarea>
-                    </div>
-                    <button class="btn btn-primary">Add FAQ</button>
-                </form>
+                {% endfor %}
             </div>
         </div>
     </div>
 
     <div class="card shadow p-3 mt-4">
-        <h5>Existing FAQs</h5>
-        {% for faq in faqs %}
-            <div class="border rounded p-3 mb-3">
-                <h6>{{faq[1]}}</h6>
-                <p>{{faq[2]}}</p>
-                <a href="/delete/{{faq[0]}}" class="btn btn-sm btn-danger">Delete</a>
-            </div>
-        {% endfor %}
+        <h5>⚠ Low Confidence Queries</h5>
+        {% if low_confidence_logs %}
+            {% for log in low_confidence_logs %}
+                <div class="border rounded p-2 mb-2">
+                    <strong>User:</strong> {{log[1]}} <br>
+                    <strong>Confidence:</strong> {{log[3]}}%
+                </div>
+            {% endfor %}
+        {% else %}
+            <p>No low confidence queries.</p>
+        {% endif %}
     </div>
 
 </div>
@@ -257,7 +265,7 @@ function toggle(){
 
 </body>
 </html>
-""", faqs=faqs, total_queries=total_queries, low_confidence=low_confidence)
+""", faqs=faqs, total_queries=total_queries, low_confidence_logs=low_confidence_logs)
 
 # ================= ADD FAQ =================
 
@@ -272,13 +280,15 @@ def add():
                    (request.form["question"],request.form["answer"]))
     conn.commit()
     conn.close()
-
     return redirect(url_for("admin"))
 
 # ================= DELETE =================
 
 @app.route("/delete/<int:id>")
 def delete(id):
+    if not session.get("admin"):
+        return redirect(url_for("login"))
+
     conn = sqlite3.connect("database.db")
     cursor = conn.cursor()
     cursor.execute("DELETE FROM faqs WHERE id=?", (id,))
@@ -294,4 +304,5 @@ def logout():
     return redirect(url_for("home"))
 
 if __name__=="__main__":
-    app.run(debug=True)
+    port = int(os.environ.get("PORT", 5000))
+    app.run(host="0.0.0.0", port=port)
