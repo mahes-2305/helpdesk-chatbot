@@ -6,6 +6,11 @@ from sklearn.metrics.pairwise import cosine_similarity
 app = Flask(__name__)
 app.secret_key = "supersecretkey"
 
+import os
+
+ADMIN_USERNAME = os.environ.get("ADMIN_USERNAME", "admin")
+ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "1234")
+
 # ================= DATABASE SETUP =================
 
 def init_db():
@@ -140,7 +145,7 @@ def chat():
 @app.route("/login", methods=["GET","POST"])
 def login():
     if request.method=="POST":
-        if request.form["username"]=="admin" and request.form["password"]=="1234":
+        if request.form["username"]==ADMIN_USERNAME and request.form["password"]==ADMIN_PASSWORD:
             session["admin"]=True
             return redirect(url_for("admin"))
         else:
