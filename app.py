@@ -232,14 +232,36 @@ def chat():
 
 # ================= LOGIN =================
 
-@app.route("/login", methods=["GET","POST"])
+import os
+
+def get_admin_credentials():
+    admins = []
+
+    for i in range(1, 5):  # Supports 4 admins
+        username = os.environ.get(f"ADMIN_{i}_USER")
+        password = os.environ.get(f"ADMIN_{i}_PASS")
+
+        if username and password:
+            admins.append((username, password))
+
+    return admins
+
+
+@app.route("/login", methods=["GET", "POST"])
 def login():
-    if request.method=="POST":
-        if request.form["username"]==ADMIN_USERNAME and request.form["password"]==ADMIN_PASSWORD:
-            session["admin"]=True
-            return redirect(url_for("admin"))
-        else:
-            return "Invalid credentials"
+    if request.method == "POST":
+        entered_user = request.form["username"]
+        entered_pass = request.form["password"]
+
+        admins = get_admin_credentials()
+
+        for user, pwd in admins:
+            if entered_user == user and entered_pass == pwd:
+                session["admin"] = True
+                session["admin_name"] = user
+                return redirect(url_for("admin"))
+
+        return "Invalid credentials"
 
     return render_template_string("""
 <!DOCTYPE html>
@@ -255,17 +277,12 @@ body {
     align-items:center;
     height:100vh;
 }
-.card {
-    border-radius:15px;
-}
+.card { border-radius:15px; }
 </style>
 </head>
-
 <body>
-
 <div class="card shadow p-4" style="width:350px;">
     <h3 class="text-center mb-3">🔐 Admin Login</h3>
-    
     <form method="POST">
         <div class="mb-3">
             <input name="username" class="form-control" placeholder="Username" required>
@@ -275,16 +292,13 @@ body {
         </div>
         <button class="btn btn-dark w-100">Login</button>
     </form>
-
     <div class="text-center mt-3">
         <a href="/" class="text-decoration-none">← Back to Chat</a>
     </div>
 </div>
-
 </body>
 </html>
 """)
-
 # ================= ADMIN =================
 
 @app.route("/admin")
