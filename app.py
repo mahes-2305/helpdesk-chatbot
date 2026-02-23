@@ -8,9 +8,14 @@ app = Flask(__name__)
 app.secret_key = os.environ.get("SECRET_KEY", "devkey")
 
 # Admin credentials from environment
-ADMIN_USERNAME = os.environ.get("ADMIN_USERNAME", "admin")
-ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "1234")
-
+def get_admin_credentials():
+    admins = []
+    for i in range(1, 5):
+        username = os.environ.get(f"ADMIN_{i}_USER")
+        password = os.environ.get(f"ADMIN_{i}_PASS")
+        if username and password:
+            admins.append((username.strip(), password.strip()))
+    return admins
 # ================= DATABASE SETUP =================
 
 def init_db():
