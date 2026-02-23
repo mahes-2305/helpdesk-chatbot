@@ -11,9 +11,9 @@ app.secret_key = os.environ.get("SECRET_KEY", "devkey")
 def get_admin_credentials():
     admins = []
     for i in range(1, 5):
-        username = os.environ.get(f"ADMIN_{i}_USER")
-        password = os.environ.get(f"ADMIN_{i}_PASS")
-        if username and password:
+        username = os.environ.get(f"ADMIN_{i}_USER", "")
+        password = os.environ.get(f"ADMIN_{i}_PASS", "")
+        if username.strip() and password.strip():
             admins.append((username.strip(), password.strip()))
     return admins
 # ================= DATABASE SETUP =================
@@ -235,60 +235,71 @@ def chat():
 
     return jsonify({"response": response, "confidence": confidence})
 
-# ================= LOGIN =================
+## ================= LOGIN =================
 
 @app.route("/login", methods=["GET","POST"])
 def login():
-    if request.method=="POST":
-        if request.form["username"]==ADMIN_USERNAME and request.form["password"]==ADMIN_PASSWORD:
-            session["admin"]=True
-            return redirect(url_for("admin"))
-        else:
-            return "Invalid credentials"
+    if request.method == "POST":
+        username = request.form["username"]
+        password = request.form["password"]
+
+        admins = get_admin_credentials()
+
+        # If no environment variables set → fallback default admin
+        if not admins:
+            admins = [("admin", "1234")]
+
+        # Check against all admins
+        for admin_user, admin_pass in admins:
+            if username == admin_user and password == admin_pass:
+                session["admin"] = True
+                return redirect(url_for("admin"))
+
+        return "Invalid credentials"
 
     return render_template_string("""
-<!DOCTYPE html>
-<html>
-<head>
-<title>Admin Login</title>
-<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
-<style>
-body {
-    background: linear-gradient(135deg,#2b5876,#4e4376);
-    display:flex;
-    justify-content:center;
-    align-items:center;
-    height:100vh;
-}
-.card {
-    border-radius:15px;
-}
-</style>
-</head>
+    <!DOCTYPE html>
+    <html>
+    <head>
+    <title>Admin Login</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+    body {
+        background: linear-gradient(135deg,#2b5876,#4e4376);
+        display:flex;
+        justify-content:center;
+        align-items:center;
+        height:100vh;
+    }
+    .card {
+        border-radius:15px;
+    }
+    </style>
+    </head>
 
-<body>
+    <body>
 
-<div class="card shadow p-4" style="width:350px;">
-    <h3 class="text-center mb-3">🔐 Admin Login</h3>
-    
-    <form method="POST">
-        <div class="mb-3">
-            <input name="username" class="form-control" placeholder="Username" required>
+    <div class="card shadow p-4" style="width:350px;">
+        <h3 class="text-center mb-3">🔐 Admin Login</h3>
+        
+        <form method="POST">
+            <div class="mb-3">
+                <input name="username" class="form-control" placeholder="Username" required>
+            </div>
+            <div class="mb-3">
+                <input name="password" type="password" class="form-control" placeholder="Password" required>
+            </div>
+            <button class="btn btn-dark w-100">Login</button>
+        </form>
+
+        <div class="text-center mt-3">
+            <a href="/" class="text-decoration-none">← Back to Chat</a>
         </div>
-        <div class="mb-3">
-            <input name="password" type="password" class="form-control" placeholder="Password" required>
-        </div>
-        <button class="btn btn-dark w-100">Login</button>
-    </form>
-
-    <div class="text-center mt-3">
-        <a href="/" class="text-decoration-none">← Back to Chat</a>
     </div>
-</div>
 
-</body>
-</html>
-""")
+    </body>
+    </html>
+    """)
 
 # ================= ADMIN =================
 
