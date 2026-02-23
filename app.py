@@ -155,14 +155,49 @@ def login():
         else:
             return "Invalid credentials"
 
-    return """
+    return render_template_string("""
+<!DOCTYPE html>
+<html>
+<head>
+<title>Admin Login</title>
+<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+<style>
+body {
+    background: linear-gradient(135deg,#2b5876,#4e4376);
+    display:flex;
+    justify-content:center;
+    align-items:center;
+    height:100vh;
+}
+.card {
+    border-radius:15px;
+}
+</style>
+</head>
+
+<body>
+
+<div class="card shadow p-4" style="width:350px;">
+    <h3 class="text-center mb-3">🔐 Admin Login</h3>
+    
     <form method="POST">
-    <h2>Admin Login</h2>
-    Username:<br><input name="username"><br>
-    Password:<br><input name="password" type="password"><br><br>
-    <button>Login</button>
+        <div class="mb-3">
+            <input name="username" class="form-control" placeholder="Username" required>
+        </div>
+        <div class="mb-3">
+            <input name="password" type="password" class="form-control" placeholder="Password" required>
+        </div>
+        <button class="btn btn-dark w-100">Login</button>
     </form>
-    """
+
+    <div class="text-center mt-3">
+        <a href="/" class="text-decoration-none">← Back to Chat</a>
+    </div>
+</div>
+
+</body>
+</html>
+""")
 
 # ================= ADMIN =================
 
