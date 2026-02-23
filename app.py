@@ -61,48 +61,134 @@ def train_model():
 @app.route("/")
 def home():
     return render_template_string("""
-    <!DOCTYPE html>
-    <html>
-    <head>
-    <title>College Helpdesk</title>
-    <style>
-    body { font-family: Arial; background: linear-gradient(135deg,#2b5876,#4e4376); display:flex; justify-content:center; align-items:center; height:100vh; }
-    .chat { background:white; padding:20px; border-radius:15px; width:400px; box-shadow:0 10px 30px rgba(0,0,0,0.3); }
-    #messages { min-height:200px; margin-bottom:10px; }
-    input { width:75%; padding:8px; }
-    button { padding:8px; }
-    </style>
-    </head>
-    <body>
-    <div class="chat">
-        <h2>🎓 College Helpdesk Chatbot</h2>
-        <div id="messages"></div>
-        <input id="msg" placeholder="Type your question...">
-        <button onclick="send()">Send</button>
-        <br><br>
-        <a href="/login">Admin Login</a>
+<!DOCTYPE html>
+<html>
+<head>
+<title>CiperBot AI</title>
+<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+<style>
+body {
+    background: linear-gradient(135deg,#141e30,#243b55);
+    height: 100vh;
+    display:flex;
+    justify-content:center;
+    align-items:center;
+    font-family: Arial;
+}
+.chat-container {
+    width: 500px;
+    height: 600px;
+    background: #1f2937;
+    border-radius: 15px;
+    display:flex;
+    flex-direction:column;
+    box-shadow: 0 15px 40px rgba(0,0,0,0.4);
+}
+.chat-header {
+    padding:15px;
+    background:#111827;
+    color:white;
+    text-align:center;
+    border-top-left-radius:15px;
+    border-top-right-radius:15px;
+}
+.chat-body {
+    flex:1;
+    padding:15px;
+    overflow-y:auto;
+}
+.message {
+    margin-bottom:15px;
+    padding:10px 15px;
+    border-radius:20px;
+    max-width:75%;
+}
+.user {
+    background:#3b82f6;
+    color:white;
+    margin-left:auto;
+}
+.bot {
+    background:#374151;
+    color:white;
+}
+.chat-footer {
+    padding:10px;
+    display:flex;
+    background:#111827;
+}
+.chat-footer input {
+    flex:1;
+    border-radius:20px;
+    border:none;
+    padding:10px;
+}
+.chat-footer button {
+    margin-left:10px;
+    border-radius:20px;
+}
+.typing {
+    font-size:12px;
+    color:#9ca3af;
+}
+</style>
+</head>
+
+<body>
+
+<div class="chat-container">
+
+    <div class="chat-header d-flex justify-content-between align-items-center">
+    <div>
+        🤖 <strong>CiperBot AI</strong><br>
+        <small>College Helpdesk Assistant</small>
+    </div>
+    <a href="/login" class="btn btn-outline-light btn-sm">Admin login</a>
+</div>
+
+    <div id="chatBody" class="chat-body"></div>
+
+    <div class="chat-footer">
+        <input id="msg" placeholder="Ask me anything...">
+        <button class="btn btn-primary" onclick="send()">Send</button>
     </div>
 
-    <script>
-    function send(){
-        let msg = document.getElementById("msg").value;
-        fetch("/chat",{
-            method:"POST",
-            headers:{"Content-Type":"application/json"},
-            body:JSON.stringify({message:msg})
-        })
-        .then(res=>res.json())
-        .then(data=>{
-            document.getElementById("messages").innerHTML += 
-            "<p><b>You:</b> "+msg+"</p>"+
-            "<p><b>Bot:</b> "+data.response+
-            "<br><small>Confidence: "+data.confidence+"%</small></p>";
-        });
-    }
-    </script>
-    </body>
-    </html>
-    """)
+</div>
+
+<script>
+function send(){
+    let msg = document.getElementById("msg").value;
+    if(!msg) return;
+
+    let chatBody = document.getElementById("chatBody");
+
+    chatBody.innerHTML += `<div class="message user">${msg}</div>`;
+    chatBody.innerHTML += `<div class="typing">CiperBot is typing...</div>`;
+    chatBody.scrollTop = chatBody.scrollHeight;
+
+    fetch("/chat",{
+        method:"POST",
+        headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({message:msg})
+    })
+    .then(res=>res.json())
+    .then(data=>{
+        document.querySelector(".typing").remove();
+        chatBody.innerHTML += `
+            <div class="message bot">
+                ${data.response}
+                <br><small>Confidence: ${data.confidence}%</small>
+            </div>`;
+        chatBody.scrollTop = chatBody.scrollHeight;
+    });
+
+    document.getElementById("msg").value="";
+}
+</script>
+
+</body>
+</html>
+""")
 
 # ================= CHAT =================
 
