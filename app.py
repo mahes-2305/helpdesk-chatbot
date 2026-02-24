@@ -1,8 +1,12 @@
-from flask import Flask, request, redirect, url_for, session, jsonify, render_template_string
+from flask import Flask, request, redirect, url_for, session, jsonify, render_template, render_template_string
 import sqlite3
 import os
-from sklearn.feature_extraction.text import TfidfVectorizer
+from sentence_transformers import SentenceTransformer
 from sklearn.metrics.pairwise import cosine_similarity
+import numpy as np
+
+# Load embedding model once
+model = SentenceTransformer("all-MiniLM-L6-v2")
 
 app = Flask(__name__)
 app.secret_key = os.environ.get("SECRET_KEY", "devkey")
@@ -44,9 +48,33 @@ def init_db():
 
 init_db()
 
+def migrate_logs_table():
+    conn = sqlite3.connect("database.db")
+    cursor = conn.cursor()
+
+    try:
+        cursor.execute("ALTER TABLE logs ADD COLUMN is_low_confidence INTEGER DEFAULT 0")
+    except:
+        pass
+
+    try:
+        cursor.execute("ALTER TABLE logs ADD COLUMN helpful_count INTEGER DEFAULT 0")
+    except:
+        pass
+
+    try:
+        cursor.execute("ALTER TABLE logs ADD COLUMN not_helpful_count INTEGER DEFAULT 0")
+    except:
+        pass
+
+    conn.commit()
+    conn.close()
+
+migrate_logs_table()
+
 # ================= NLP TRAINING =================
 
-def train_model():
+def load_faq_embeddings():
     conn = sqlite3.connect("database.db")
     cursor = conn.cursor()
     cursor.execute("SELECT question FROM faqs")
@@ -56,144 +84,16 @@ def train_model():
     questions = [row[0] for row in data]
 
     if questions:
-        vectorizer = TfidfVectorizer()
-        X = vectorizer.fit_transform(questions)
-        return vectorizer, X, questions
-    return None, None, []
+        embeddings = model.encode(questions)
+        return questions, embeddings
+    else:
+        return [], None
 
 # ================= HOME =================
 
 @app.route("/")
 def home():
-    return render_template_string("""
-<!DOCTYPE html>
-<html>
-<head>
-<title>CiperBot AI</title>
-<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
-<style>
-body {
-    background: linear-gradient(135deg,#141e30,#243b55);
-    height: 100vh;
-    display:flex;
-    justify-content:center;
-    align-items:center;
-    font-family: Arial;
-}
-.chat-container {
-    width: 500px;
-    height: 600px;
-    background: #1f2937;
-    border-radius: 15px;
-    display:flex;
-    flex-direction:column;
-    box-shadow: 0 15px 40px rgba(0,0,0,0.4);
-}
-.chat-header {
-    padding:15px;
-    background:#111827;
-    color:white;
-    text-align:center;
-    border-top-left-radius:15px;
-    border-top-right-radius:15px;
-}
-.chat-body {
-    flex:1;
-    padding:15px;
-    overflow-y:auto;
-}
-.message {
-    margin-bottom:15px;
-    padding:10px 15px;
-    border-radius:20px;
-    max-width:75%;
-}
-.user {
-    background:#3b82f6;
-    color:white;
-    margin-left:auto;
-}
-.bot {
-    background:#374151;
-    color:white;
-}
-.chat-footer {
-    padding:10px;
-    display:flex;
-    background:#111827;
-}
-.chat-footer input {
-    flex:1;
-    border-radius:20px;
-    border:none;
-    padding:10px;
-}
-.chat-footer button {
-    margin-left:10px;
-    border-radius:20px;
-}
-.typing {
-    font-size:12px;
-    color:#9ca3af;
-}
-</style>
-</head>
-
-<body>
-
-<div class="chat-container">
-
-    <div class="chat-header d-flex justify-content-between align-items-center">
-    <div>
-        🤖 <strong>CiperBot AI</strong><br>
-        <small>College Helpdesk Assistant</small>
-    </div>
-    <a href="/login" class="btn btn-outline-light btn-sm">Admin login</a>
-</div>
-
-    <div id="chatBody" class="chat-body"></div>
-
-    <div class="chat-footer">
-        <input id="msg" placeholder="Ask me anything...">
-        <button class="btn btn-primary" onclick="send()">Send</button>
-    </div>
-
-</div>
-
-<script>
-function send(){
-    let msg = document.getElementById("msg").value;
-    if(!msg) return;
-
-    let chatBody = document.getElementById("chatBody");
-
-    chatBody.innerHTML += `<div class="message user">${msg}</div>`;
-    chatBody.innerHTML += `<div class="typing">CiperBot is typing...</div>`;
-    chatBody.scrollTop = chatBody.scrollHeight;
-
-    fetch("/chat",{
-        method:"POST",
-        headers:{"Content-Type":"application/json"},
-        body:JSON.stringify({message:msg})
-    })
-    .then(res=>res.json())
-    .then(data=>{
-        document.querySelector(".typing").remove();
-        chatBody.innerHTML += `
-            <div class="message bot">
-                ${data.response}
-                <br><small>Confidence: ${data.confidence}%</small>
-            </div>`;
-        chatBody.scrollTop = chatBody.scrollHeight;
-    });
-
-    document.getElementById("msg").value="";
-}
-</script>
-
-</body>
-</html>
-""")
+    return render_template("index.html")
 
 # ================= CHAT =================
 
@@ -201,13 +101,14 @@ function send(){
 def chat():
     user_input = request.json["message"]
 
-    vectorizer, X, questions = train_model()
+    questions, faq_embeddings = load_faq_embeddings()
 
     if not questions:
         return jsonify({"response": "No FAQs available.", "confidence": 0})
 
-    user_vector = vectorizer.transform([user_input])
-    similarity = cosine_similarity(user_vector, X)
+    user_embedding = model.encode([user_input])
+
+    similarity = cosine_similarity(user_embedding, faq_embeddings)
 
     score = similarity.max()
     index = similarity.argmax()
@@ -222,18 +123,56 @@ def chat():
         result = cursor.fetchone()
         response = result[0] if result else "Answer not found."
 
-    confidence = round(score * 100, 2)
+    confidence = round(float(score) * 100, 2)
+
+    is_low = 1 if confidence < 50 else 0
 
     # Log query
-    cursor.execute(
-        "INSERT INTO logs (user_input, bot_response, confidence) VALUES (?, ?, ?)",
-        (user_input, response, confidence)
-    )
+    cursor.execute("""
+        INSERT INTO logs (user_input, bot_response, confidence, is_low_confidence)
+        VALUES (?, ?, ?, ?)
+    """, (user_input, response, confidence, is_low))
+
+    log_id = cursor.lastrowid
+    
+    conn.commit()
+    conn.close()
+
+    return jsonify({
+    "response": response,
+    "confidence": confidence,
+    "log_id": log_id
+})
+
+
+## ================= FEEDBACK =================
+
+@app.route("/feedback", methods=["POST"])
+def feedback():
+    data = request.json
+    log_id = data.get("log_id")
+    feedback_type = data.get("type")  # "helpful" or "not_helpful"
+
+    conn = sqlite3.connect("database.db")
+    cursor = conn.cursor()
+
+    if feedback_type == "helpful":
+        cursor.execute("""
+            UPDATE logs
+            SET helpful_count = helpful_count + 1
+            WHERE id = ?
+        """, (log_id,))
+    elif feedback_type == "not_helpful":
+        cursor.execute("""
+            UPDATE logs
+            SET not_helpful_count = not_helpful_count + 1
+            WHERE id = ?
+        """, (log_id,))
 
     conn.commit()
     conn.close()
 
-    return jsonify({"response": response, "confidence": confidence})
+    return jsonify({"status": "success"})
 
 ## ================= LOGIN =================
 
@@ -311,6 +250,31 @@ def admin():
     conn = sqlite3.connect("database.db")
     cursor = conn.cursor()
 
+    from datetime import datetime, timedelta
+
+# Today's date
+    today = datetime.now().date()
+
+    cursor.execute("""
+        SELECT COUNT(*) FROM logs
+        WHERE DATE(rowid, 'unixepoch') = DATE('now')
+""")
+    today_queries = cursor.fetchone()[0]
+
+# Helpful percentage
+    cursor.execute("SELECT SUM(helpful_count), SUM(not_helpful_count) FROM logs")
+    result = cursor.fetchone()
+
+    total_helpful = result[0] if result[0] else 0
+    total_not_helpful = result[1] if result[1] else 0
+
+    total_feedback = total_helpful + total_not_helpful
+
+    if total_feedback > 0:
+       helpful_percentage = round((total_helpful / total_feedback) * 100, 2)
+    else:
+        helpful_percentage = 0
+
     cursor.execute("SELECT * FROM faqs")
     faqs = cursor.fetchall()
 
@@ -320,90 +284,26 @@ def admin():
     cursor.execute("SELECT * FROM logs WHERE confidence < 40")
     low_confidence_logs = cursor.fetchall()
 
+    cursor.execute("""
+        SELECT id, user_input, confidence, helpful_count, not_helpful_count
+        FROM logs
+        ORDER BY id DESC
+""")
+    all_logs = cursor.fetchall()
+
     conn.close()
 
-    return render_template_string("""
-<!DOCTYPE html>
-<html>
-<head>
-<title>Admin Dashboard</title>
-<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
-<style>
-body.dark { background-color:#121212; color:white; }
-.dark .card { background:#1e1e1e; color:white; }
-</style>
-</head>
+    from flask import render_template
 
-<body class="bg-light" id="body">
-
-<nav class="navbar navbar-dark bg-dark px-4">
-    <span class="navbar-brand">Admin Dashboard</span>
-    <div>
-        <button class="btn btn-secondary btn-sm me-2" onclick="toggle()">🌙</button>
-        <a href="/logout" class="btn btn-danger btn-sm">Logout</a>
-    </div>
-</nav>
-
-<div class="container mt-4">
-
-    <div class="card shadow p-3 mb-4">
-        <h5>📊 Statistics</h5>
-        <p><strong>Total Queries:</strong> {{total_queries}}</p>
-        <p><strong>Low Confidence (&lt;40%):</strong> {{low_confidence_logs|length}}</p>
-    </div>
-
-    <div class="row">
-        <div class="col-md-6">
-            <div class="card shadow p-3">
-                <h5>Add FAQ</h5>
-                <form method="POST" action="/add">
-                    <input name="question" class="form-control mb-2" placeholder="Question" required>
-                    <textarea name="answer" class="form-control mb-2" placeholder="Answer" required></textarea>
-                    <button class="btn btn-primary">Add FAQ</button>
-                </form>
-            </div>
-        </div>
-
-        <div class="col-md-6">
-            <div class="card shadow p-3">
-                <h5>Existing FAQs</h5>
-                {% for faq in faqs %}
-                    <div class="border rounded p-2 mb-2">
-                        <strong>{{faq[1]}}</strong>
-                        <p>{{faq[2]}}</p>
-                        <a href="/delete/{{faq[0]}}" class="btn btn-sm btn-danger">Delete</a>
-                    </div>
-                {% endfor %}
-            </div>
-        </div>
-    </div>
-
-    <div class="card shadow p-3 mt-4">
-        <h5>⚠ Low Confidence Queries</h5>
-        {% if low_confidence_logs %}
-            {% for log in low_confidence_logs %}
-                <div class="border rounded p-2 mb-2">
-                    <strong>User:</strong> {{log[1]}} <br>
-                    <strong>Confidence:</strong> {{log[3]}}%
-                </div>
-            {% endfor %}
-        {% else %}
-            <p>No low confidence queries.</p>
-        {% endif %}
-    </div>
-
-</div>
-
-<script>
-function toggle(){
-    document.getElementById("body").classList.toggle("dark");
-}
-</script>
-
-</body>
-</html>
-""", faqs=faqs, total_queries=total_queries, low_confidence_logs=low_confidence_logs)
-
+    return render_template(
+    "admin.html",
+    faqs=faqs,
+    total_queries=total_queries,
+    low_confidence_logs=low_confidence_logs,
+    all_logs=all_logs,
+    today_queries=today_queries,
+    helpful_percentage=helpful_percentage
+)
 # ================= ADD FAQ =================
 
 @app.route("/add", methods=["POST"])
