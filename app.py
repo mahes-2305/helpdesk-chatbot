@@ -4,9 +4,16 @@ import os
 from sentence_transformers import SentenceTransformer
 from sklearn.metrics.pairwise import cosine_similarity
 import numpy as np
+from flask import g
 
 # Load embedding model once
 model = SentenceTransformer("all-MiniLM-L6-v2")
+
+
+# Global cache
+faq_questions = []
+faq_answers = []
+faq_embeddings = None
 
 app = Flask(__name__)
 app.secret_key = os.environ.get("SECRET_KEY", "devkey")
@@ -30,7 +37,8 @@ def init_db():
         CREATE TABLE IF NOT EXISTS faqs (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             question TEXT,
-            answer TEXT
+            answer TEXT,
+            intent TEXT
         )
     """)
 
@@ -39,13 +47,34 @@ def init_db():
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             user_input TEXT,
             bot_response TEXT,
-            confidence REAL
+            confidence REAL,
+            is_low_confidence INTEGER DEFAULT 0,
+            helpful_count INTEGER DEFAULT 0,
+            not_helpful_count INTEGER DEFAULT 0,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
     """)
 
+
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS unanswered (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        question TEXT,
+        reviewed INTEGER DEFAULT 0
+    )
+""")
+    
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS students (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        username TEXT UNIQUE,
+        password TEXT
+    )
+""")
+
     conn.commit()
     conn.close()
-
+    
 init_db()
 
 def migrate_logs_table():
@@ -67,10 +96,47 @@ def migrate_logs_table():
     except:
         pass
 
+    try:
+        cursor.execute("ALTER TABLE logs ADD COLUMN created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP")
+    except:
+        pass
+
+    try:
+        cursor.execute("ALTER TABLE logs ADD COLUMN created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP")
+    except:
+        pass
+
+    try:
+        cursor.execute("ALTER TABLE logs ADD COLUMN intent TEXT")
+    except:
+        pass
+
     conn.commit()
     conn.close()
 
+def reload_faq_cache():
+    global faq_questions, faq_answers, faq_embeddings
+
+    conn = sqlite3.connect("database.db")
+    cursor = conn.cursor()
+    cursor.execute("SELECT question, answer FROM faqs")
+    data = cursor.fetchall()
+    conn.close()
+
+    faq_questions = [row[0] for row in data]
+    faq_answers = [row[1] for row in data]
+
+    if faq_questions:
+        faq_embeddings = model.encode(faq_questions)
+    else:
+        faq_embeddings = None
+
 migrate_logs_table()
+
+
+reload_faq_cache()
+
+
 
 # ================= NLP TRAINING =================
 
@@ -88,70 +154,230 @@ def load_faq_embeddings():
         return questions, embeddings
     else:
         return [], None
+    
+
+## ================= STUDENT LOGIN =================
+
+@app.route("/student-login", methods=["GET", "POST"])
+def student_login():
+
+    if request.method == "POST":
+        username = request.form["username"]
+        password = request.form["password"]
+
+        conn = sqlite3.connect("database.db")
+        cursor = conn.cursor()
+
+        cursor.execute(
+            "SELECT * FROM students WHERE username=? AND password=?",
+            (username, password)
+        )
+
+        student = cursor.fetchone()
+        conn.close()
+
+        if student:
+            session["student"] = username
+            return redirect(url_for("home"))
+        else:
+            return "Invalid credentials"
+
+    return render_template_string("""
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <title>Student Login</title>
+        <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+    </head>
+    <body class="bg-dark d-flex justify-content-center align-items-center vh-100">
+
+        <div class="card p-4" style="width:350px;">
+            <h4 class="text-center mb-3"> Student Login</h4>
+
+            <form method="POST">
+                <input name="username" class="form-control mb-2" placeholder="Username" required>
+                <input type="password" name="password" class="form-control mb-2" placeholder="Password" required>
+                <button class="btn btn-primary w-100">Login</button>
+            </form>
+        </div>
+
+    </body>
+    </html>
+    """)    
+
+
+
+# ================= STUDENT LOGOUT =================
+
+@app.route("/student_logout")
+def student_logout():
+    session.pop("student", None)
+    session.pop("chat_history", None)
+    return redirect(url_for("student_login"))
+    
+
+
+
 
 # ================= HOME =================
 
 @app.route("/")
 def home():
+    if not session.get("student"):
+        return redirect(url_for("student_login"))
+
     return render_template("index.html")
+
+
+def detect_intent(text):
+    text = text.lower()
+
+    intent_map = {
+        "Exams": ["exam", "internal", "mark", "result"],
+        "Fees": ["fee", "payment", "tuition"],
+        "Hostel": ["hostel", "room", "mess"],
+        "Transport": ["bus", "transport", "route"],
+        "OD": ["od", "on duty", "leave"],
+        "Complaint": ["complaint", "issue", "problem"]
+    }
+
+    for intent, keywords in intent_map.items():
+        if any(word in text for word in keywords):
+            return intent
+
+    return "General"
+
+
 
 # ================= CHAT =================
 
 @app.route("/chat", methods=["POST"])
 def chat():
-    user_input = request.json["message"]
+    try:
+        user_input = request.json.get("message")
 
-    questions, faq_embeddings = load_faq_embeddings()
+        if not user_input:
+            return jsonify({
+                "response": "Please enter a message.",
+                "confidence": 0
+            })
 
-    if not questions:
-        return jsonify({"response": "No FAQs available.", "confidence": 0})
+        # 🔐 Student Protection
+        if not session.get("student"):
+            return jsonify({
+                "response": "Please login first.",
+                "confidence": 0
+            })
 
-    user_embedding = model.encode([user_input])
+        # -------- SESSION MEMORY --------
+        if "chat_history" not in session:
+            session["chat_history"] = []
 
-    similarity = cosine_similarity(user_embedding, faq_embeddings)
+        context = " ".join(session["chat_history"][-2:])
+        combined_input = context + " " + user_input
 
-    score = similarity.max()
-    index = similarity.argmax()
+        intent = detect_intent(user_input)
 
-    conn = sqlite3.connect("database.db")
-    cursor = conn.cursor()
+        conn = sqlite3.connect("database.db")
+        cursor = conn.cursor()
 
-    if score < 0.4:
-        response = "I am not sure about that. Forwarded to admin."
-    else:
-        cursor.execute("SELECT answer FROM faqs WHERE question=?", (questions[index],))
-        result = cursor.fetchone()
-        response = result[0] if result else "Answer not found."
+        # ✅ HYBRID: Filter by intent first
+        cursor.execute("""
+    SELECT question, answer 
+    FROM faqs
+    WHERE intent=? OR intent IS NULL
+""", (intent,))
+        data = cursor.fetchall()
 
-    confidence = round(float(score) * 100, 2)
+        # If no FAQ under that intent
+        if not data:
+            response = "I don't have information about this topic yet."
+            confidence = 0
+            is_low = 1
 
-    is_low = 1 if confidence < 50 else 0
+            cursor.execute("""
+                INSERT INTO unanswered (question, reviewed)
+                VALUES (?, 0)
+            """, (user_input,))
 
-    # Log query
-    cursor.execute("""
-        INSERT INTO logs (user_input, bot_response, confidence, is_low_confidence)
-        VALUES (?, ?, ?, ?)
-    """, (user_input, response, confidence, is_low))
+        else:
+            questions = [row[0] for row in data]
+            answers = [row[1] for row in data]
 
-    log_id = cursor.lastrowid
-    
-    conn.commit()
-    conn.close()
+            faq_embeddings = model.encode(questions)
+            user_embedding = model.encode([combined_input])
 
-    return jsonify({
-    "response": response,
-    "confidence": confidence,
-    "log_id": log_id
-})
+            similarity = cosine_similarity(user_embedding, faq_embeddings)
+
+            score = float(similarity[0].max())
+            index = int(similarity[0].argmax())
+
+            confidence = round(score * 100, 2)
+
+            # 🎯 Strict threshold logic
+            if len(user_input.split()) <= 2:
+                threshold = 0.50
+            else:
+                threshold = 0.70
+
+            if score >= threshold:
+                response = answers[index]
+                is_low = 0
+
+            elif 0.55 <= score < threshold:
+                response = answers[index] + "\n\n(This answer may not be exact.)"
+                is_low = 0
+
+            else:
+                response = "I'm not confident about this answer. It has been sent for admin review."
+                is_low = 1
+
+                cursor.execute("""
+                    INSERT INTO unanswered (question, reviewed)
+                    VALUES (?, 0)
+                """, (user_input,))
+
+        # -------- LOGGING --------
+        cursor.execute("""
+            INSERT INTO logs (user_input, bot_response, confidence, is_low_confidence)
+            VALUES (?, ?, ?, ?)
+        """, (user_input, response, confidence, is_low))
+
+        log_id = cursor.lastrowid
+
+        conn.commit()
+        conn.close()
+
+        # -------- SAVE MEMORY --------
+        session["chat_history"].append(user_input)
+
+        if len(session["chat_history"]) > 5:
+            session["chat_history"] = session["chat_history"][-5:]
+
+        return jsonify({
+            "response": response,
+            "confidence": confidence,
+            "log_id": log_id
+        })
+
+    except Exception as e:
+        print("ERROR:", e)
+        return jsonify({
+            "response": "Something went wrong.",
+            "confidence": 0
+        })
 
 
 ## ================= FEEDBACK =================
 
 @app.route("/feedback", methods=["POST"])
 def feedback():
-    data = request.json
+    data = request.get_json()
     log_id = data.get("log_id")
-    feedback_type = data.get("type")  # "helpful" or "not_helpful"
+    feedback_type = data.get("type")
+
+    if not log_id:
+        return jsonify({"status": "error"})
 
     conn = sqlite3.connect("database.db")
     cursor = conn.cursor()
@@ -162,7 +388,7 @@ def feedback():
             SET helpful_count = helpful_count + 1
             WHERE id = ?
         """, (log_id,))
-    elif feedback_type == "not_helpful":
+    else:
         cursor.execute("""
             UPDATE logs
             SET not_helpful_count = not_helpful_count + 1
@@ -173,6 +399,8 @@ def feedback():
     conn.close()
 
     return jsonify({"status": "success"})
+
+
 
 ## ================= LOGIN =================
 
@@ -219,7 +447,7 @@ def login():
     <body>
 
     <div class="card shadow p-4" style="width:350px;">
-        <h3 class="text-center mb-3">🔐 Admin Login</h3>
+        <h3 class="text-center mb-3"> Admin Login</h3>
         
         <form method="POST">
             <div class="mb-3">
@@ -244,40 +472,16 @@ def login():
 
 @app.route("/admin")
 def admin():
+
     if not session.get("admin"):
         return redirect(url_for("login"))
 
     conn = sqlite3.connect("database.db")
     cursor = conn.cursor()
 
-    from datetime import datetime, timedelta
+    selected_date = request.args.get("date")
 
-# Today's date
-    today = datetime.now().date()
-
-    cursor.execute("""
-        SELECT COUNT(*) FROM logs
-        WHERE DATE(rowid, 'unixepoch') = DATE('now')
-""")
-    today_queries = cursor.fetchone()[0]
-
-# Helpful percentage
-    cursor.execute("SELECT SUM(helpful_count), SUM(not_helpful_count) FROM logs")
-    result = cursor.fetchone()
-
-    total_helpful = result[0] if result[0] else 0
-    total_not_helpful = result[1] if result[1] else 0
-
-    total_feedback = total_helpful + total_not_helpful
-
-    if total_feedback > 0:
-       helpful_percentage = round((total_helpful / total_feedback) * 100, 2)
-    else:
-        helpful_percentage = 0
-
-    cursor.execute("SELECT * FROM faqs")
-    faqs = cursor.fetchall()
-
+    # ===== BASIC STATS =====
     cursor.execute("SELECT COUNT(*) FROM logs")
     total_queries = cursor.fetchone()[0]
 
@@ -285,25 +489,83 @@ def admin():
     low_confidence_logs = cursor.fetchall()
 
     cursor.execute("""
-        SELECT id, user_input, confidence, helpful_count, not_helpful_count
+        SELECT SUM(helpful_count), SUM(not_helpful_count)
         FROM logs
-        ORDER BY id DESC
-""")
+    """)
+    feedback = cursor.fetchone()
+
+    total_helpful = feedback[0] if feedback[0] else 0
+    total_not_helpful = feedback[1] if feedback[1] else 0
+    total_feedback = total_helpful + total_not_helpful
+
+    helpful_percentage = round((total_helpful / total_feedback) * 100, 2) if total_feedback > 0 else 0
+
+    # ===== TODAY QUERIES =====
+    cursor.execute("""
+        SELECT COUNT(*) FROM logs
+        WHERE DATE(created_at) = DATE('now')
+    """)
+    today_queries = cursor.fetchone()[0]
+
+    # ===== DATE FILTER =====
+    if selected_date:
+        cursor.execute("""
+            SELECT id, user_input, confidence, helpful_count, not_helpful_count
+            FROM logs
+            WHERE DATE(created_at) = ?
+            ORDER BY id DESC
+        """, (selected_date,))
+    else:
+        cursor.execute("""
+            SELECT id, user_input, confidence, helpful_count, not_helpful_count
+            FROM logs
+            ORDER BY id DESC
+        """)
+
     all_logs = cursor.fetchall()
+
+    # ===== DAILY STATS =====
+    cursor.execute("""
+        SELECT DATE(created_at), COUNT(*)
+        FROM logs
+        GROUP BY DATE(created_at)
+        ORDER BY DATE(created_at)
+    """)
+    daily_stats = cursor.fetchall()
+
+    feedback_stats = [total_helpful, total_not_helpful]
+
+    # ===== FAQ =====
+    cursor.execute("SELECT * FROM faqs")
+    faqs = cursor.fetchall()
+
+    # ===== UNANSWERED =====
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS unanswered (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            question TEXT,
+            reviewed INTEGER DEFAULT 0
+        )
+    """)
+
+    cursor.execute("SELECT * FROM unanswered WHERE reviewed = 0")
+    unanswered_list = cursor.fetchall()
 
     conn.close()
 
-    from flask import render_template
-
     return render_template(
-    "admin.html",
-    faqs=faqs,
-    total_queries=total_queries,
-    low_confidence_logs=low_confidence_logs,
-    all_logs=all_logs,
-    today_queries=today_queries,
-    helpful_percentage=helpful_percentage
-)
+        "admin.html",
+        total_queries=total_queries,
+        low_confidence_logs=low_confidence_logs,
+        helpful_percentage=helpful_percentage,
+        today_queries=today_queries,
+        all_logs=all_logs,
+        daily_stats=daily_stats,
+        feedback_stats=feedback_stats,
+        faqs=faqs,
+        selected_date=selected_date,
+        unanswered_list=unanswered_list,
+    )
 # ================= ADD FAQ =================
 
 @app.route("/add", methods=["POST"])
@@ -311,12 +573,57 @@ def add():
     if not session.get("admin"):
         return redirect(url_for("login"))
 
+    question = request.form.get("question")
+    answer = request.form.get("answer")
+
+    if not question or not answer:
+        return "Missing data", 400
+
     conn = sqlite3.connect("database.db")
     cursor = conn.cursor()
-    cursor.execute("INSERT INTO faqs (question,answer) VALUES (?,?)",
-                   (request.form["question"],request.form["answer"]))
+
+    intent = detect_intent(question)
+
+    cursor.execute(
+    "INSERT INTO faqs (question, answer, intent) VALUES (?, ?, ?)",
+    (question, answer, intent)
+)
+
     conn.commit()
     conn.close()
+
+    reload_faq_cache()
+
+    return redirect(url_for("admin"))
+
+
+@app.route("/convert/<int:id>", methods=["POST"])
+def convert_to_faq(id):
+    if not session.get("admin"):
+        return redirect(url_for("login"))
+
+    answer = request.form["answer"]
+
+    conn = sqlite3.connect("database.db")
+    cursor = conn.cursor()
+
+    # Get question
+    cursor.execute("SELECT question FROM unanswered WHERE id=?", (id,))
+    result = cursor.fetchone()
+
+    if result:
+        question = result[0]
+
+        # Insert into FAQ
+        cursor.execute("INSERT INTO faqs (question, answer) VALUES (?,?)",
+                       (question, answer))
+
+        # Mark as reviewed
+        cursor.execute("UPDATE unanswered SET reviewed=1 WHERE id=?", (id,))
+
+    conn.commit()
+    conn.close()
+
     return redirect(url_for("admin"))
 
 # ================= DELETE =================
@@ -333,6 +640,23 @@ def delete(id):
     conn.close()
     return redirect(url_for("admin"))
 
+
+# ================= DELETE UNANSWERED =================
+
+@app.route("/delete-unanswered/<int:id>")
+def delete_unanswered(id):
+    if not session.get("admin"):
+        return redirect(url_for("login"))
+
+    conn = sqlite3.connect("database.db")
+    cursor = conn.cursor()
+    cursor.execute("DELETE FROM unanswered WHERE id=?", (id,))
+    conn.commit()
+    conn.close()
+
+    return redirect(url_for("admin"))
+
+
 # ================= LOGOUT =================
 
 @app.route("/logout")
@@ -343,3 +667,5 @@ def logout():
 if __name__=="__main__":
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port)
+
+

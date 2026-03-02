@@ -1,121 +1,231 @@
 <!DOCTYPE html>
 <html>
 <head>
-<title>CipherBot Admin</title>
-<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
-<style>
-.scroll-box{
-    max-height:300px;
-    overflow-y:auto;
-}
+    <title>CipherBot Admin</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
 
-.dashboard-card{
-    border-radius:15px;
-    padding:20px;
-    text-align:center;
-    color:white;
-    background:#1f2937;
-}
+    <style>
+        body {
+            background: #f4f6f9;
+        }
 
-.big-number{
-    font-size:32px;
-    font-weight:bold;
-}
-</style>
+        .dashboard-card {
+            border-radius: 15px;
+            padding: 20px;
+            text-align: center;
+            color: white;
+            background: linear-gradient(135deg,#141e30,#243b55);
+            box-shadow: 0 10px 25px rgba(0,0,0,0.1);
+        }
+
+        .big-number {
+            font-size: 30px;
+            font-weight: bold;
+        }
+
+        .scroll-box {
+            max-height: 300px;
+            overflow-y: auto;
+        }
+
+        .section-card {
+            border-radius: 15px;
+            box-shadow: 0 10px 25px rgba(0,0,0,0.05);
+        }
+    </style>
+</head>
+
+<body>
+
+<nav class="navbar navbar-dark bg-dark px-4">
+    <span class="navbar-brand">CipherBot Admin Panel</span>
+    <a href="/logout" class="btn btn-danger btn-sm">Logout</a>
+</nav>
 
 <div class="container mt-4">
 
-<!-- DASHBOARD -->
-<div class="row mb-4">
-    <div class="col-md-3">
-        <div class="dashboard-card">
-            <div class="big-number">{{ total_queries }}</div>
-            Total Queries
+    <!-- DASHBOARD -->
+    <div class="row mb-4">
+
+        <div class="col-md-3">
+            <div class="dashboard-card">
+                <div class="big-number">{{ total_queries }}</div>
+                Total Queries
+            </div>
         </div>
-    </div>
 
-    <div class="col-md-3">
-        <div class="dashboard-card">
-            <div class="big-number">{{ low_confidence_logs|length }}</div>
-            Low Confidence
+        <div class="col-md-3">
+            <div class="dashboard-card">
+                <div class="big-number">{{ low_confidence_logs|length }}</div>
+                Low Confidence
+            </div>
         </div>
-    </div>
 
-    <div class="col-md-3">
-        <div class="dashboard-card">
-            <div class="big-number">{{ helpful_percentage }}%</div>
-            Helpful Rating
+        <div class="col-md-3">
+            <div class="dashboard-card">
+                <div class="big-number">{{ helpful_percentage }}%</div>
+                Helpful Rating
+            </div>
         </div>
-    </div>
 
-    <div class="col-md-3">
-        <div class="dashboard-card">
-            <div class="big-number">{{ today_queries }}</div>
-            Today Queries
+        <div class="col-md-3">
+            <div class="dashboard-card">
+                <div class="big-number">{{ today_queries }}</div>
+                Today Queries
+            </div>
         </div>
+
     </div>
-</div>
 
-<!-- FAQ + EXISTING -->
-<div class="row">
 
-<div class="col-md-6">
-    <div class="card p-3">
-        <h5>Add FAQ</h5>
-        <form method="POST" action="/add">
-            <input name="question" class="form-control mb-2" placeholder="Question" required>
-            <textarea name="answer" class="form-control mb-2" placeholder="Answer" required></textarea>
-            <button class="btn btn-primary w-100">Add FAQ</button>
-        </form>
+    <!-- ADD FAQ + EXISTING FAQ -->
+    <div class="row">
+
+        <div class="col-md-6">
+            <div class="card section-card p-3">
+                <h5>Add FAQ</h5>
+                <form method="POST" action="/add">
+                    <input name="question" class="form-control mb-2" placeholder="Question" required>
+                    <textarea name="answer" class="form-control mb-2" placeholder="Answer" required></textarea>
+                    <button class="btn btn-primary w-100">Add FAQ</button>
+                </form>
+            </div>
+        </div>
+
+        <div class="col-md-6">
+            <div class="card section-card p-3">
+                <h5>Existing FAQs</h5>
+                <div class="scroll-box">
+                    {% for faq in faqs %}
+                        <div class="border rounded p-2 mb-2">
+                            <strong>{{ faq[1] }}</strong>
+                            <p>{{ faq[2] }}</p>
+                            <a href="/delete/{{ faq[0] }}" class="btn btn-sm btn-danger">Delete</a>
+                        </div>
+                    {% endfor %}
+                </div>
+            </div>
+        </div>
+
     </div>
-</div>
 
-<div class="col-md-6">
-    <div class="card p-3">
-        <h5>Existing FAQs</h5>
+
+    <!-- LOW CONFIDENCE -->
+    <div class="card section-card p-3 mt-4">
+        <h5>⚠ Low Confidence Queries</h5>
         <div class="scroll-box">
-        {% for faq in faqs %}
-            <div class="border rounded p-2 mb-2">
-                <strong>{{ faq[1] }}</strong>
-                <p>{{ faq[2] }}</p>
-                <a href="/delete/{{ faq[0] }}" class="btn btn-sm btn-danger">Delete</a>
+            {% for log in low_confidence_logs %}
+                <div class="border rounded p-2 mb-2">
+                    <strong>User:</strong> {{ log[1] }} <br>
+                    Confidence: {{ log[3] }}%
+                </div>
+            {% endfor %}
+        </div>
+    </div>
+
+
+    <form method="GET" action="/admin" class="mb-3">
+    <label><strong>Filter by Date:</strong></label>
+    <input type="date" name="date" value="{{ selected_date }}">
+    <button class="btn btn-sm btn-primary">Filter</button>
+    <a href="/admin" class="btn btn-sm btn-secondary">Clear</a>
+</form>
+
+
+    <!-- QUERY HISTORY -->
+    <div class="card section-card p-3 mt-4">
+        <h5> Query History</h5>
+        <div class="scroll-box">
+            {% for log in all_logs %}
+                <div class="border rounded p-2 mb-2">
+                    <strong>User:</strong> {{ log[1] }} <br>
+                    Confidence: {{ log[2] }}% |
+                    👍 {{ log[3] }} |
+                    👎 {{ log[4] }}
+                </div>
+            {% endfor %}
+        </div>
+    </div>
+
+
+    <div class="card p-3 mt-4">
+    <h5> Unanswered Questions</h5>
+
+    {% if unanswered_list %}
+        {% for item in unanswered_list %}
+            <div class="border rounded p-2 mb-3">
+                <strong>Question:</strong> {{ item[1] }}
+
+                <form method="POST" action="/convert/{{ item[0] }}" class="mt-2">
+                    <textarea name="answer" class="form-control mb-2" placeholder="Write answer..." required></textarea>
+                    <button class="btn btn-success btn-sm">Convert to FAQ</button>
+                </form>
+
+
+                <a href="/delete-unanswered/{{ item[0] }}" 
+                 class="btn btn-sm btn-danger"
+                 onclick="return confirm('Delete this question?')">
+                 Delete
+               </a>
+
+
+
+
             </div>
         {% endfor %}
+    {% else %}
+        <p class="text-muted">No unanswered questions</p>
+    {% endif %}
+</div>
+
+
+    <!-- ANALYTICS -->
+    <div class="card section-card p-3 mt-4">
+        <h5>Analytics</h5>
+
+        <div class="row">
+            <div class="col-md-6">
+                <canvas id="dailyChart"></canvas>
+            </div>
+            <div class="col-md-6">
+                <canvas id="feedbackChart"></canvas>
+            </div>
         </div>
     </div>
-</div>
 
 </div>
 
-<!-- LOW CONFIDENCE -->
-<div class="card p-3 mt-4">
-    <h5>⚠ Low Confidence Queries</h5>
-    <div class="scroll-box">
-    {% for log in low_confidence_logs %}
-        <div class="border rounded p-2 mb-2">
-            <strong>User:</strong> {{ log[1] }} <br>
-            <strong>Confidence:</strong> {{ log[3] }}%
-        </div>
-    {% endfor %}
-    </div>
-</div>
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 
-<!-- FULL HISTORY -->
-<div class="card p-3 mt-4">
-    <h5>📜 Query History</h5>
-    <div class="scroll-box">
-    {% for log in all_logs %}
-        <div class="border rounded p-2 mb-2">
-            <strong>User:</strong> {{ log[1] }} <br>
-            Confidence: {{ log[2] }}% |
-            👍 {{ log[3] }} |
-            👎 {{ log[4] }}
-        </div>
-    {% endfor %}
-    </div>
-</div>
+<script>
+const dailyData = {{ daily_stats | tojson | safe }};
+const feedbackData = {{ feedback_stats | tojson | safe }};
 
-</div>
+const dates = dailyData.map(d => d[0]);
+const counts = dailyData.map(d => d[1]);
+
+new Chart(document.getElementById("dailyChart"), {
+    type: "line",
+    data: {
+        labels: dates,
+        datasets: [{
+            label: "Queries per Day",
+            data: counts,
+            borderWidth: 2
+        }]
+    }
+});
+
+new Chart(document.getElementById("feedbackChart"), {
+    type: "pie",
+    data: {
+        labels: ["Helpful", "Not Helpful"],
+        datasets: [{
+            data: feedbackData
+        }]
+    }
+});
+</script>
 
 </body>
 </html>
