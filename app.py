@@ -18,6 +18,10 @@ faq_embeddings = None
 app = Flask(__name__)
 app.secret_key = "super-secret-key-12345"
 
+# 🔥 ADD THESE LINES
+app.config["SESSION_COOKIE_SECURE"] = True
+app.config["SESSION_COOKIE_SAMESITE"] = "None"
+
 # Admin credentials from environment
 def get_admin_credentials():
     admins = []
