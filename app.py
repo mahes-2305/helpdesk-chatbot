@@ -16,7 +16,7 @@ faq_answers = []
 faq_embeddings = None
 
 app = Flask(__name__)
-app.secret_key = os.environ.get("SECRET_KEY", "devkey")
+app.secret_key = "super-secret-key-12345"
 
 # Admin credentials from environment
 def get_admin_credentials():
