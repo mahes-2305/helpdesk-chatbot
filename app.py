@@ -199,11 +199,19 @@ def student_login():
             <h4 class="text-center mb-3"> Student Login</h4>
 
             <form method="POST">
-                <input name="username" class="form-control mb-2" placeholder="Username" required>
-                <input type="password" name="password" class="form-control mb-2" placeholder="Password" required>
-                <button class="btn btn-primary w-100">Login</button>
-            </form>
+    <input name="username" class="form-control mb-2" placeholder="Username" required>
+    <input type="password" name="password" class="form-control mb-2" placeholder="Password" required>
+    <button class="btn btn-primary w-100">Login</button>
+</form>
+
+<hr>
+<div class="text-center">
+    <a href="/admin-login" class="btn btn-dark w-100">
+        Admin Login
+    </a>
+</div>
         </div>
+                                  
 
     </body>
     </html>
