@@ -187,35 +187,31 @@ def student_login():
             return "Invalid credentials"
 
     return render_template_string("""
-    <!DOCTYPE html>
-    <html>
-    <head>
-        <title>Student Login</title>
-        <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
-    </head>
-    <body class="bg-dark d-flex justify-content-center align-items-center vh-100">
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Login</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+</head>
+<body class="bg-dark d-flex justify-content-center align-items-center vh-100">
 
-        <div class="card p-4" style="width:350px;">
-            <h4 class="text-center mb-3"> Student Login</h4>
+    <div class="card p-4" style="width:350px;">
+        <h4 class="text-center mb-3">Login Portal</h4>
 
-            <form method="POST">
-    <input name="username" class="form-control mb-2" placeholder="Username" required>
-    <input type="password" name="password" class="form-control mb-2" placeholder="Password" required>
-    <button class="btn btn-primary w-100">Login</button>
-</form>
+        <form method="POST">
+            <input name="username" class="form-control mb-2" placeholder="Username" required>
+            <input type="password" name="password" class="form-control mb-3" placeholder="Password" required>
+            <button class="btn btn-primary w-100 mb-2">Student Login</button>
+        </form>
 
-<hr>
-<div class="text-center">
-    <a href="/admin-login" class="btn btn-dark w-100">
-        Admin Login
-    </a>
-</div>
-        </div>
-                                  
+        <a href="/login" class="btn btn-dark w-100">Admin Login</a>
+    </div>
 
-    </body>
-    </html>
-    """)    
+</body>
+</html>
+""")   
+
+
 
 
 
@@ -224,7 +220,6 @@ def student_login():
 @app.route("/student_logout")
 def student_logout():
     session.pop("student", None)
-    session.pop("chat_history", None)
     return redirect(url_for("student_login"))
     
 
@@ -673,8 +668,11 @@ def delete_unanswered(id):
 
 @app.route("/logout")
 def logout():
-    session.pop("admin",None)
-    return redirect(url_for("home"))
+    session.pop("admin", None)
+    return redirect(url_for("login"))
+
+if __name__ == "__main__":
+    app.run(debug=True)
 
 
 
