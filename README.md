@@ -1,6 +1,5 @@
 ---
 title: Cipherbot Ai
-emoji: 🔥
 colorFrom: red
 colorTo: gray
 sdk: docker
